@@ -25,4 +25,14 @@ class AdminRepository {
             Mono.empty()
         }
     }
+
+    // -- new function --
+    fun findByEmail(email: String): Mono<Admin> {
+        val entry = store.firstOrNull { it["email"] == email }
+        return if (entry != null) {
+            Mono.just(Admin(entry["id"] as String, entry["name"] as String, entry["email"] as String, entry["role"] as String))
+        } else {
+            Mono.empty()
+        }
+    }
 }
