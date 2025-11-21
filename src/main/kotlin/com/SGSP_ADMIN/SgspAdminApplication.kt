@@ -1,4 +1,4 @@
-package SGSP_ADMIN.SGSP_ARTIFACT
+package com.SGSP_ADMIN
 
 import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.boot.runApplication
