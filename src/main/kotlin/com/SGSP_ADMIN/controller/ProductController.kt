@@ -7,8 +7,8 @@ import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
 import reactor.core.publisher.Mono
 import reactor.core.publisher.Flux
+import java.time.Instant
 import java.util.Locale
-import kotlin.math.ceil
 
 @RestController
 @RequestMapping("/api/admin/v1/products")
@@ -16,13 +16,14 @@ class ProductController(
     private val repo: ProductRepository
 ) {
 
-    // Create product -> returns 201 with minimal product summary
     @PostMapping
     fun create(@RequestBody productMono: Mono<Product>): Mono<ResponseEntity<Map<String, Any?>>> {
         return productMono.flatMap { p ->
-            // ensure default status DRAFT if not provided
             if (p.status.isNullOrBlank()) p.status = "DRAFT"
-            repo.create(p).map { created ->
+            val now = Instant.now().toString()
+            p.createdAt = now
+            p.updatedAt = now
+            repo.save(p).map { created ->
                 val responseData = mapOf(
                     "id" to created.id,
                     "status" to created.status,
@@ -34,7 +35,6 @@ class ProductController(
         }
     }
 
-    // List products with filtering & pagination
     @GetMapping
     fun list(
         @RequestParam("page", required = false, defaultValue = "0") pageParam: Int,
@@ -48,7 +48,6 @@ class ProductController(
         val size = if (sizeParam <= 0) 20 else sizeParam
 
         return repo.findAll().collectList().map { all ->
-            // apply filters
             val filtered = all.filter { p ->
                 var ok = true
                 if (!status.isNullOrBlank()) ok = ok && (p.status?.equals(status, ignoreCase = true) ?: false)
@@ -71,8 +70,7 @@ class ProductController(
             val totalPages = if (totalElements == 0) 0 else ((totalElements + size - 1) / size)
             val fromIndex = (page * size).coerceAtMost(totalElements)
             val toIndex = ((page * size) + size).coerceAtMost(totalElements)
-            // ensure pageContent is List<Product>
-            val pageContent: List<com.SGSP_ADMIN.repository.Product> =
+            val pageContent: List<Product> =
                 if (fromIndex >= toIndex) emptyList()
                 else filtered.subList(fromIndex, toIndex)
 
@@ -102,7 +100,6 @@ class ProductController(
         }
     }
 
-    // Get full product details
     @GetMapping("/{id}")
     fun getById(@PathVariable id: String): Mono<ResponseEntity<Map<String, Any?>>> {
         return repo.findById(id)
@@ -120,39 +117,71 @@ class ProductController(
             )
     }
 
-    // Update product (partial) -> return id and updatedAt
     @PutMapping("/{id}")
     fun update(@PathVariable id: String, @RequestBody patchMono: Mono<Product>): Mono<ResponseEntity<Map<String, Any?>>> {
         return patchMono.flatMap { patch ->
-            repo.update(id, patch)
-                .map { updated ->
+            repo.findById(id).flatMap { existing ->
+                // merge non-null fields from patch into existing
+                patch.name?.let { existing.name = it }
+                patch.description?.let { existing.description = it }
+                patch.categoryId?.let { existing.categoryId = it }
+                patch.status?.let { existing.status = it }
+                patch.attributes?.let { existing.attributes = it }
+                patch.pricing?.let { existing.pricing = it }
+                patch.inventory?.let { existing.inventory = it }
+                patch.images?.let { existing.images = it }
+                existing.updatedAt = Instant.now().toString()
+                repo.save(existing).map { updated ->
                     val responseData = mapOf("id" to updated.id, "updatedAt" to updated.updatedAt)
                     ResponseEntity.ok(mapOf("success" to true, "data" to responseData, "error" to null))
                 }
-                .switchIfEmpty(
-                    Mono.just(
-                        ResponseEntity.status(HttpStatus.NOT_FOUND).body(
-                            mapOf(
-                                "success" to false,
-                                "data" to null,
-                                "error" to mapOf("code" to "PRODUCT_NOT_FOUND", "message" to "Product not found")
-                            )
+            }.switchIfEmpty(
+                Mono.just(
+                    ResponseEntity.status(HttpStatus.NOT_FOUND).body(
+                        mapOf(
+                            "success" to false,
+                            "data" to null,
+                            "error" to mapOf("code" to "PRODUCT_NOT_FOUND", "message" to "Product not found")
                         )
                     )
                 )
+            )
         }
     }
 
-    // Soft-delete (archive) -> set status = ARCHIVED
     @DeleteMapping("/{id}")
     fun delete(@PathVariable id: String): Mono<ResponseEntity<Map<String, Any?>>> {
-        val patch = Product(status = "ARCHIVED")
-        return repo.update(id, patch).map { _ ->
-            ResponseEntity.ok(mapOf<String, Any?>("success" to true, "data" to null, "error" to null))
+        return repo.findById(id).flatMap { existing ->
+            existing.status = "ARCHIVED"
+            existing.updatedAt = Instant.now().toString()
+            repo.save(existing).map {
+                ResponseEntity.ok(mapOf<String, Any?>("success" to true, "data" to null, "error" to null))
+            }
         }.switchIfEmpty(
             Mono.just(
                 ResponseEntity.status(HttpStatus.NOT_FOUND).body(
                     mapOf<String, Any?>(
+                        "success" to false,
+                        "data" to null,
+                        "error" to mapOf<String, Any?>("code" to "PRODUCT_NOT_FOUND", "message" to "Product not found")
+                    )
+                )
+            )
+        )
+    }
+
+    @PostMapping("/{id}/publish")
+    fun publish(@PathVariable id: String): Mono<ResponseEntity<Map<String, Any?>>> {
+        return repo.findById(id).flatMap { existing ->
+            existing.status = "PUBLISHED"
+            existing.updatedAt = Instant.now().toString()
+            repo.save(existing).map { updated ->
+                ResponseEntity.ok(mapOf("success" to true, "data" to mapOf("id" to updated.id, "status" to updated.status), "error" to null))
+            }
+        }.switchIfEmpty(
+            Mono.just(
+                ResponseEntity.status(HttpStatus.NOT_FOUND).body(
+                    mapOf(
                         "success" to false,
                         "data" to null,
                         "error" to mapOf("code" to "PRODUCT_NOT_FOUND", "message" to "Product not found")
@@ -162,57 +191,24 @@ class ProductController(
         )
     }
 
-    // Publish product
-    @PostMapping("/{id}/publish")
-    fun publish(@PathVariable id: String): Mono<ResponseEntity<Map<String, Any?>>> {
-        val patch = Product(status = "PUBLISHED")
-        return repo.update(id, patch)
-            .map { updated ->
-                ResponseEntity.ok(
-                    mapOf<String, Any?>(
-                        "success" to true,
-                        "data" to mapOf("id" to updated.id, "status" to updated.status),
-                        "error" to null
-                    )
-                )
-            }
-            .switchIfEmpty(
-                Mono.just(
-                    ResponseEntity.status(HttpStatus.NOT_FOUND).body(
-                        mapOf<String, Any?>(
-                            "success" to false,
-                            "data" to null,
-                            "error" to mapOf("code" to "PRODUCT_NOT_FOUND", "message" to "Product not found")
-                        )
-                    )
-                )
-            )
-    }
-
-    // Unpublish product -> revert to DRAFT
     @PostMapping("/{id}/unpublish")
     fun unpublish(@PathVariable id: String): Mono<ResponseEntity<Map<String, Any?>>> {
-        val patch = Product(status = "DRAFT")
-        return repo.update(id, patch)
-            .map { updated ->
-                ResponseEntity.ok(
-                    mapOf<String, Any?>(
-                        "success" to true,
-                        "data" to mapOf("id" to updated.id, "status" to updated.status),
-                        "error" to null
-                    )
-                )
+        return repo.findById(id).flatMap { existing ->
+            existing.status = "DRAFT"
+            existing.updatedAt = Instant.now().toString()
+            repo.save(existing).map { updated ->
+                ResponseEntity.ok(mapOf("success" to true, "data" to mapOf("id" to updated.id, "status" to updated.status), "error" to null))
             }
-            .switchIfEmpty(
-                Mono.just(
-                    ResponseEntity.status(HttpStatus.NOT_FOUND).body(
-                        mapOf<String, Any?>(
-                            "success" to false,
-                            "data" to null,
-                            "error" to mapOf("code" to "PRODUCT_NOT_FOUND", "message" to "Product not found")
-                        )
+        }.switchIfEmpty(
+            Mono.just(
+                ResponseEntity.status(HttpStatus.NOT_FOUND).body(
+                    mapOf(
+                        "success" to false,
+                        "data" to null,
+                        "error" to mapOf("code" to "PRODUCT_NOT_FOUND", "message" to "Product not found")
                     )
                 )
             )
+        )
     }
 }

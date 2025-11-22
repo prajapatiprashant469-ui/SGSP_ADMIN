@@ -1,38 +1,22 @@
 package com.SGSP_ADMIN.repository
 
+import org.springframework.data.annotation.Id
+import org.springframework.data.mongodb.core.mapping.Document
+import org.springframework.data.mongodb.repository.ReactiveMongoRepository
 import reactor.core.publisher.Mono
 
-data class Admin(val id: String, val name: String, val email: String, val role: String)
+@Document(collection = "admins")
+data class Admin(
+    @Id val id: String? = null,
+    val name: String,
+    val email: String,
+    val role: String,
+    // plain-text password for demo only. In production store hashed password and compare accordingly.
+    val password: String? = null,
+    val lastLoginAt: String? = null
+)
 
-// Simple demo repository — replace with real reactive DB and hashed passwords in production.
-class AdminRepository {
-    // NOTE: plain-text password only for demo purposes.
-    private val store = listOf(
-        mapOf(
-            "id" to "a1",
-            "name" to "Super Admin",
-            "email" to "admin@example.com",
-            "password" to "Admin@123",
-            "role" to "SUPER_ADMIN"
-        )
-    )
-
-    fun findByEmailAndPassword(email: String, password: String): Mono<Admin> {
-        val entry = store.firstOrNull { it["email"] == email && it["password"] == password }
-        return if (entry != null) {
-            Mono.just(Admin(entry["id"] as String, entry["name"] as String, entry["email"] as String, entry["role"] as String))
-        } else {
-            Mono.empty()
-        }
-    }
-
-    // -- new function --
-    fun findByEmail(email: String): Mono<Admin> {
-        val entry = store.firstOrNull { it["email"] == email }
-        return if (entry != null) {
-            Mono.just(Admin(entry["id"] as String, entry["name"] as String, entry["email"] as String, entry["role"] as String))
-        } else {
-            Mono.empty()
-        }
-    }
+interface AdminRepository : ReactiveMongoRepository<Admin, String> {
+    fun findByEmail(email: String): Mono<Admin>
+    fun findByEmailAndPassword(email: String, password: String): Mono<Admin>
 }
