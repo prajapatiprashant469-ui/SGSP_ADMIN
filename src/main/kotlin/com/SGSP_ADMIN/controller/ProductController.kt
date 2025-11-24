@@ -1,5 +1,6 @@
 package com.SGSP_ADMIN.controller
 
+import com.SGSP_ADMIN.repository.CategoryRepository
 import com.SGSP_ADMIN.repository.Product
 import com.SGSP_ADMIN.repository.ProductRepository
 import com.SGSP_ADMIN.repository.Image
@@ -22,91 +23,149 @@ import java.util.UUID
 @RestController
 @RequestMapping("/api/admin/v1/products")
 class ProductController(
-    private val repo: ProductRepository
+    private val repo: ProductRepository,
+    private val categoryRepository: CategoryRepository
 ) {
 
     @PostMapping
     fun create(@RequestBody productMono: Mono<Product>): Mono<ResponseEntity<Map<String, Any?>>> {
+
         return productMono.flatMap { p ->
-            if (p.status.isNullOrBlank()) p.status = "DRAFT"
-            val now = Instant.now().toString()
-            p.createdAt = now
-            p.updatedAt = now
-            repo.save(p).map { created ->
-                val responseData = mapOf(
-                    "id" to created.id,
-                    "status" to created.status,
-                    "name" to created.name,
-                    "categoryId" to created.categoryId
-                )
-                ResponseEntity.status(HttpStatus.CREATED).body(mapOf("success" to true, "data" to responseData, "error" to null))
-            }
+
+            // Fetch category name from category repository
+            categoryRepository.findById(p.categoryId!!)
+                .switchIfEmpty(Mono.error(RuntimeException("Category not found")))
+                .flatMap { category ->
+
+                    // Set categoryName
+                    p.categoryName = category.name
+
+                    // Set timestamps
+                    if (p.status.isNullOrBlank()) p.status = "DRAFT"
+                    val now = Instant.now().toString()
+                    p.createdAt = now
+                    p.updatedAt = now
+
+                    repo.save(p).map { created ->
+
+                        val responseData = mapOf(
+                            "id" to created.id,
+                            "status" to created.status,
+                            "name" to created.name,
+                            "categoryId" to created.categoryId,
+                            "categoryName" to created.categoryName // NEW
+                        )
+
+                        ResponseEntity
+                            .status(HttpStatus.CREATED)
+                            .body(
+                                mapOf(
+                                    "success" to true,
+                                    "data" to responseData,
+                                    "error" to null
+                                )
+                            )
+                    }
+                }
         }
     }
 
     @GetMapping
     fun list(
-        @RequestParam("page", required = false, defaultValue = "0") pageParam: Int,
-        @RequestParam("size", required = false, defaultValue = "20") sizeParam: Int,
+        @RequestParam("page", defaultValue = "0") page: Int,
+        @RequestParam("size", defaultValue = "20") size: Int,
         @RequestParam("status", required = false) status: String?,
         @RequestParam("categoryId", required = false) categoryId: String?,
         @RequestParam("color", required = false) color: String?,
         @RequestParam("search", required = false) search: String?
     ): Mono<ResponseEntity<Map<String, Any?>>> {
-        val page = if (pageParam < 0) 0 else pageParam
-        val size = if (sizeParam <= 0) 20 else sizeParam
 
-        return repo.findAll().collectList().map { all ->
-            val filtered = all.filter { p ->
+        return repo.findAll()
+            .sort(compareByDescending<Product> { it.createdAt ?: "" })
+            .filter { p ->
                 var ok = true
-                if (!status.isNullOrBlank()) ok = ok && (p.status?.equals(status, ignoreCase = true) ?: false)
-                if (!categoryId.isNullOrBlank()) ok = ok && (p.categoryId == categoryId)
-                if (!color.isNullOrBlank()) {
-                    val attrColor = p.attributes?.get("color")
-                    ok = ok && (attrColor != null && attrColor.equals(color, ignoreCase = true))
-                }
+
+                if (!status.isNullOrBlank())
+                    ok = ok && (p.status.equals(status, true))
+
+                if (!categoryId.isNullOrBlank())
+                    ok = ok && (p.categoryId == categoryId)
+
+                if (!color.isNullOrBlank())
+                    ok = ok && (p.attributes?.get("color")?.equals(color, true) == true)
+
                 if (!search.isNullOrBlank()) {
-                    val s = search.lowercase(Locale.getDefault())
+                    val s = search.lowercase()
                     ok = ok && (
-                        (p.name?.lowercase(Locale.getDefault())?.contains(s) ?: false) ||
-                        (p.description?.lowercase(Locale.getDefault())?.contains(s) ?: false)
-                    )
+                            p.name?.lowercase()?.contains(s) == true ||
+                                    p.description?.lowercase()?.contains(s) == true
+                            )
                 }
+
                 ok
             }
+            .collectList()
+            .flatMap { filtered ->
 
-            val totalElements = filtered.size
-            val totalPages = if (totalElements == 0) 0 else ((totalElements + size - 1) / size)
-            val fromIndex = (page * size).coerceAtMost(totalElements)
-            val toIndex = ((page * size) + size).coerceAtMost(totalElements)
-            val pageContent: List<Product> =
-                if (fromIndex >= toIndex) emptyList()
-                else filtered.subList(fromIndex, toIndex)
+                val totalElements = filtered.size
+                val totalPages = if (totalElements == 0) 0 else ((totalElements + size - 1) / size)
 
-            val contentSummary = pageContent.map { p ->
-                val price = (p.pricing?.get("price") as? Number)?.toDouble()
-                val stock = (p.inventory?.get("stockQuantity") as? Number)?.toInt()
-                val thumbnail = p.images?.firstOrNull()?.url
-                mapOf<String, Any?>(
-                    "id" to p.id,
-                    "name" to p.name,
-                    "status" to p.status,
-                    "price" to price,
-                    "stockQuantity" to stock,
-                    "thumbnailUrl" to thumbnail
-                )
+                val fromIndex = (page * size).coerceAtMost(totalElements)
+                val toIndex = ((page * size) + size).coerceAtMost(totalElements)
+
+                val pageContent =
+                    if (fromIndex >= toIndex) emptyList<Product>()
+                    else filtered.subList(fromIndex, toIndex)
+
+                // fetch category names reactively
+                Flux.fromIterable(pageContent)
+                    .flatMap { p ->
+                        categoryRepository.findById(p.categoryId!!)
+                            .map {
+                                mapOf(
+                                    "id" to p.id,
+                                    "name" to p.name,
+                                    "status" to p.status,
+                                    "categoryId" to p.categoryId,
+                                    "categoryName" to it.name,
+                                    "price" to p.pricing?.price,
+                                    "stockQuantity" to p.inventory?.stockQuantity,
+                                    "thumbnailUrl" to p.images?.firstOrNull()?.url
+                                )
+                            }
+                            .defaultIfEmpty(
+                                mapOf(
+                                    "id" to p.id,
+                                    "name" to p.name,
+                                    "status" to p.status,
+                                    "categoryId" to p.categoryId,
+                                    "categoryName" to "N/A",
+                                    "price" to p.pricing?.price,
+                                    "stockQuantity" to p.inventory?.stockQuantity,
+                                    "thumbnailUrl" to p.images?.firstOrNull()?.url
+                                )
+                            )
+                    }
+                    .collectList()
+                    .map { contentSummary ->
+
+                        val data = mapOf(
+                            "content" to contentSummary,
+                            "page" to page,
+                            "size" to size,
+                            "totalElements" to totalElements,
+                            "totalPages" to totalPages
+                        )
+
+                        ResponseEntity.ok(
+                            mapOf(
+                                "success" to true,
+                                "data" to data,
+                                "error" to null
+                            )
+                        )
+                    }
             }
-
-            val data = mapOf<String, Any?>(
-                "content" to contentSummary,
-                "page" to page,
-                "size" to size,
-                "totalElements" to totalElements,
-                "totalPages" to totalPages
-            )
-
-            ResponseEntity.ok(mapOf<String, Any?>("success" to true, "data" to data, "error" to null))
-        }
     }
 
     @GetMapping("/{id}")
