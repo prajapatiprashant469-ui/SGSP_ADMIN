@@ -7,13 +7,17 @@ import reactor.core.publisher.Mono
 
 @Document(collection = "admins")
 data class Admin(
-    @Id val id: String? = null,
-    val name: String,
-    val email: String,
-    val role: String,
+    @Id var id: String? = null,
+    var name: String,
+    var email: String,
+    var role: String,
     // plain-text password for demo only. In production store hashed password and compare accordingly.
-    val password: String? = null,
-    val lastLoginAt: String? = null
+    var password: String? = null,
+    var lastLoginAt: String? = null,
+    // new fields
+    var active: Boolean = true,
+    var createdAt: String? = null,
+    var updatedAt: String? = null
 )
 
 interface AdminRepository : ReactiveMongoRepository<Admin, String> {
