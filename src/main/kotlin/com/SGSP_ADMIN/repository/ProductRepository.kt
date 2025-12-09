@@ -23,6 +23,7 @@ data class Product(
     var pricing: Pricing? = null,
     var inventory: Inventory? = null,
     var images: List<Image>? = null,
+    var workerAssigned: String? = null,
     var createdAt: String? = null,
     var updatedAt: String? = null
 )

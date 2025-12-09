@@ -102,4 +102,28 @@ class ProductInventoryController(
                 ResponseEntity.ok(mapOf("success" to true, "data" to list, "error" to null))
             }
     }
+
+    // NEW: 6.3b Low-stock summary endpoint
+    @GetMapping("/api/admin/v1/inventory/low-stock-summary")
+    fun lowStockSummary(): Mono<ResponseEntity<Map<String, Any?>>> {
+        return repo.findAll()
+            .filter { p ->
+                p.inventory?.let { inv ->
+                    val sq = inv.stockQuantity
+                    val lt = inv.lowStockThreshold
+                    sq != null && lt != null && sq <= lt
+                } ?: false
+            }
+            .map { p ->
+                mapOf("productId" to p.id, "name" to p.name, "stockQuantity" to p.inventory?.stockQuantity)
+            }
+            .collectList()
+            .map { list ->
+                val data = mapOf(
+                    "totalLowStock" to list.size,
+                    "items" to list
+                )
+                ResponseEntity.ok(mapOf("success" to true, "data" to data, "error" to null))
+            }
+    }
 }

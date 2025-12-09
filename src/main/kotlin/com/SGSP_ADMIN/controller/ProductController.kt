@@ -52,6 +52,7 @@ class ProductController(
                             "id" to created.id,
                             "status" to created.status,
                             "name" to created.name,
+                            "workerAssigned" to created.workerAssigned,
                             "categoryId" to created.categoryId,
                             "categoryName" to created.categoryName // NEW
                         )

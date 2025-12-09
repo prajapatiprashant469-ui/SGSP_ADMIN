@@ -1,14 +1,12 @@
 package com.SGSP_ADMIN.controller
 
-import com.SGSP_ADMIN.repository.CategoryRepository
 import com.SGSP_ADMIN.repository.Product
 import com.SGSP_ADMIN.repository.ProductRepository
+import com.SGSP_ADMIN.repository.CategoryRepository
 import org.bson.Document
 import org.springframework.data.domain.Sort
 import org.springframework.data.mongodb.core.ReactiveMongoTemplate
-import org.springframework.data.mongodb.core.aggregation.Aggregation
 import org.springframework.data.mongodb.core.aggregation.Aggregation.*
-import org.springframework.data.mongodb.core.aggregation.AggregationResults
 import org.springframework.data.mongodb.core.query.Criteria
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.GetMapping
@@ -83,42 +81,56 @@ class DashboardController(
     // 8.2 Top products (by sold quantity) - attempts to aggregate from "orders" collection.
     @GetMapping("/top-products")
     fun topProducts(): Mono<ResponseEntity<Map<String, Any?>>> {
-        // Aggregation:
-        // unwind items, group by items.productId summing items.quantity, sort desc, limit 10
-        val unwind = unwind("items")
-        val group = group("items.productId").sum("items.quantity").`as`("totalQty")
-        val sort = sort(Sort.by(Sort.Direction.DESC, "totalQty"))
-        val limit = limit(10)
-        val agg = newAggregation(unwind, group, sort, limit)
+        val unwindOp = unwind("items")
+        val groupOp = group("items.productId").sum("items.quantity").`as`("totalQty")
+        val sortOp = sort(Sort.by(Sort.Direction.DESC, "totalQty"))
+        val limitOp = limit(10)
+        val agg = newAggregation(unwindOp, groupOp, sortOp, limitOp)
 
         return mongo.aggregate(agg, "orders", Document::class.java)
             .collectList()
-            .flatMapMany { aggs ->
-                // if no results, return empty list
-                if (aggs.isEmpty()) Flux.empty<Document>()
-                else Flux.fromIterable(aggs)
-            }
-            .flatMap { doc ->
-                val prodId = doc.getString("_id") ?: doc.get("_id")?.toString()
-                val totalQty = when (val v = doc.get("totalQty")) {
-                    is Number -> v.toLong()
-                    else -> (doc.get("totalQty") as? Number)?.toLong() ?: 0L
-                }
-                if (prodId == null) {
-                    Mono.empty()
-                } else {
-                    productRepo.findById(prodId)
-                        .map { p ->
-                            mapOf(
+            .flatMap { aggs: List<Document> ->
+                if (aggs.isEmpty()) {
+                    // fallback when there are no aggregated order results: return top 10 products (recent) with soldQuantity = 0
+                    productRepo.findAll()
+                        .take(10)
+                        .map { p: Product ->
+                            mapOf<String, Any?>(
                                 "productId" to p.id,
                                 "name" to p.name,
-                                "thumbnailUrl" to (p.images?.firstOrNull()?.url),
-                                "soldQuantity" to totalQty
+                                "thumbnailUrl" to p.images?.firstOrNull()?.url,
+                                "soldQuantity" to 0L
                             )
-                        }.switchIfEmpty(Mono.just(mapOf("productId" to prodId, "name" to "Unknown", "thumbnailUrl" to null, "soldQuantity" to totalQty)))
+                        }
+                        .collectList()
+                } else {
+                    Flux.fromIterable(aggs)
+                        .flatMap { doc: Document ->
+                            val prodId = doc.getString("_id") ?: doc.get("_id")?.toString()
+                            val totalQty = when (val v = doc.get("totalQty")) {
+                                is Number -> v.toLong()
+                                else -> (doc.get("totalQty") as? Number)?.toLong() ?: 0L
+                            }
+                            if (prodId == null) {
+                                Mono.empty<Map<String, Any?>>()
+                            } else {
+                                productRepo.findById(prodId)
+                                    .map { p: Product ->
+                                        mapOf<String, Any?>(
+                                            "productId" to p.id,
+                                            "name" to p.name,
+                                            "thumbnailUrl" to p.images?.firstOrNull()?.url,
+                                            "soldQuantity" to totalQty
+                                        )
+                                    }
+                                    .switchIfEmpty(
+                                        Mono.just(mapOf<String, Any?>("productId" to prodId, "name" to "Unknown", "thumbnailUrl" to null, "soldQuantity" to totalQty))
+                                    )
+                            }
+                        }
+                        .collectList()
                 }
             }
-            .collectList()
             .map { list ->
                 ResponseEntity.ok(mapOf("success" to true, "data" to list, "error" to null))
             }
