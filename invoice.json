@@ -1,0 +1,34 @@
+{
+  "invoiceDate": "2025-01-01",
+  "receiver": {
+    "name": "Mr. Ravi Kumar",
+    "address": "12, Near Ghat, Varanasi-221001",
+    "placeOfSupply": "Uttar Pradesh",
+    "transportMode": "Road",
+    "state": "Uttar Pradesh",
+    "stateCode": "09",
+    "gstIn": "09ABCDE1234F2Z5"
+  },
+  "consignee": {
+    "name": "Mrs. Seema Sharma",
+    "address": "45, Bhelupur, Varanasi-221002",
+    "placeOfSupply": "Uttar Pradesh",
+    "transportMode": "Road",
+    "invoiceNo": "INV-2025-001"
+  },
+  "items": [
+    { "serialNo": 1, "description": "Banarasi Silk Saree – Red with Golden Zari", "hsnCode": "620332", "quantity": 1, "rate": 3999.0 },
+    { "serialNo": 2, "description": "Banarasi Silk Saree – Green", "hsnCode": "620332", "quantity": 2, "rate": 3599.0 }
+  ],
+  "tax": { "cgstPercent": 2.5, "sgstPercent": 2.5, "igstPercent": 0.0 },
+  "freightCharge": 50.0,
+  "amountInWords": null,
+  "totalSummary": {
+    "totalBeforeTax": 11197.0,
+    "cgstAmount": 279.93,
+    "sgstAmount": 279.93,
+    "igstAmount": 0.0,
+    "freightCharge": 50.0,
+    "totalAfterTax": 117.0
+  }
+}
