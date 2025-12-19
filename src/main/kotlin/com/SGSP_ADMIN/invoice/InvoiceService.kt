@@ -17,173 +17,195 @@ class InvoiceService {
         val writer = PdfWriter.getInstance(doc, baos)
         doc.open()
 
-        val titleFont = Font(Font.HELVETICA, 14f, Font.BOLD)
-        val storeFont = Font(Font.HELVETICA, 16f, Font.BOLD)
-        val bold = Font(Font.HELVETICA, 10f, Font.BOLD)
-        val normal = Font(Font.HELVETICA, 10f, Font.NORMAL)
-        val small = Font(Font.HELVETICA, 8f, Font.NORMAL)
+        val bold = Font(Font.HELVETICA, 9f, Font.BOLD)
+        val normal = Font(Font.HELVETICA, 9f)
+        val small = Font(Font.HELVETICA, 8f)
 
-        // HEADER
-        val title = Paragraph("TAX INVOICE", titleFont)
-        title.alignment = Element.ALIGN_CENTER
-        doc.add(title)
+        /* ================= OUTER BORDER ================= */
+        val cb = writer.directContent
+        val rect = Rectangle(doc.left(), doc.bottom(), doc.right(), doc.top())
+        rect.border = Rectangle.BOX
+        rect.borderWidth = 1.5f
+        cb.rectangle(rect)
 
-        val storeName = Paragraph("SHASHANK SAREE CENTER", storeFont)
-        storeName.alignment = Element.ALIGN_CENTER
-        doc.add(storeName)
+        /* ================= HEADER ================= */
+        val header = PdfPTable(1)
+        header.widthPercentage = 100f
 
-        val storeInfo = Paragraph("N9/28 A-1, Choti Patiya, Bajardihā, Varanasi-221109\nGSTIN: 09GHBPP6328G1Z2    Mobile: 8318325253", normal)
-        storeInfo.alignment = Element.ALIGN_CENTER
-        doc.add(storeInfo)
+        fun center(text: String, font: Font) =
+            PdfPCell(Phrase(text, font)).apply {
+                border = PdfPCell.NO_BORDER
+                horizontalAlignment = Element.ALIGN_CENTER
+                setPadding(3f)
+            }
 
+        header.addCell(center("TAX INVOICE", Font(Font.HELVETICA, 10f, Font.BOLD)))
+        header.addCell(center("SHASHANK SAREE CENTER", Font(Font.HELVETICA, 16f, Font.BOLD)))
+        header.addCell(center("N9/28 A-1, Choti Patiya, Bajardihā, Varanasi-221109", normal))
+        header.addCell(center("GSTIN - 09GHBPP6328G1Z2", bold))
+        header.addCell(center("Mob: 8318325253", normal))
+
+        doc.add(header)
         doc.add(Chunk.NEWLINE)
 
-        // Date (right)
-        val dateStr = try {
-            LocalDate.parse(req.invoiceDate).format(DateTimeFormatter.ISO_DATE)
-        } catch (_: Exception) {
-            req.invoiceDate
-        }
-        val datePara = Paragraph("Date: $dateStr", normal)
+        val datePara = Paragraph("Date: ${req.invoiceDate}", normal)
         datePara.alignment = Element.ALIGN_RIGHT
         doc.add(datePara)
 
         doc.add(Chunk.NEWLINE)
 
-        // TWO-COLUMN: Receiver (left) and Consignee (right)
-        val twoCol = PdfPTable(2)
-        twoCol.widthPercentage = 100f
-        twoCol.setWidths(floatArrayOf(50f, 50f))
+        /* ================= RECEIVER / CONSIGNEE ================= */
+        val partyTable = PdfPTable(2)
+        partyTable.widthPercentage = 100f
+        partyTable.setWidths(floatArrayOf(50f, 50f))
 
-        fun titledCell(titleText: String, content: String?): PdfPCell {
-            val p = Phrase()
-            p.add(Chunk("$titleText\n", bold))
-            p.add(Chunk(content ?: "", normal))
-            val cell = PdfPCell(Phrase(p))
-            cell.setBorder(PdfPCell.NO_BORDER)
-            return cell
-        }
+        fun sectionHeader(text: String) =
+            PdfPCell(Phrase(text, bold)).apply {
+                backgroundColor = Color(220, 220, 220)
+                setPadding(5f)
+            }
+
+        fun boxed(label: String, value: String?) =
+            PdfPCell(Phrase("$label : ${value ?: ""}", normal)).apply {
+                setPadding(5f)
+            }
+
+        partyTable.addCell(sectionHeader("DETAILS OF RECEIVER (BILLED TO)"))
+        partyTable.addCell(sectionHeader("DETAILS OF CONSIGNEE (SHIPPED TO)"))
 
         val r = req.receiver
-        val receiverTable = PdfPTable(1)
-        receiverTable.widthPercentage = 100f
-        receiverTable.addCell(titledCell("RECEIVER (BILLED TO)", ""))
-        receiverTable.addCell(titledCell("Name", r.name))
-        receiverTable.addCell(titledCell("Address", r.address))
-        receiverTable.addCell(titledCell("Place of Supply", r.placeOfSupply ?: ""))
-        receiverTable.addCell(titledCell("Transport Mode", r.transportMode ?: ""))
-        receiverTable.addCell(titledCell("State", r.state ?: ""))
-        receiverTable.addCell(titledCell("State Code", r.stateCode ?: ""))
-        receiverTable.addCell(titledCell("GSTIN", r.gstIn ?: ""))
-
-        val rc = PdfPCell(receiverTable)
-        rc.setBorder(PdfPCell.NO_BORDER)
-        twoCol.addCell(rc)
-
         val c = req.consignee
-        val consigneeTable = PdfPTable(1)
-        consigneeTable.widthPercentage = 100f
-        consigneeTable.addCell(titledCell("CONSIGNEE (SHIPPED TO)", ""))
-        consigneeTable.addCell(titledCell("Name", c.name))
-        consigneeTable.addCell(titledCell("Address", c.address))
-        consigneeTable.addCell(titledCell("Place of Supply", c.placeOfSupply ?: ""))
-        consigneeTable.addCell(titledCell("Transport Mode", c.transportMode ?: ""))
-        consigneeTable.addCell(titledCell("Invoice No", c.invoiceNo ?: ""))
-        consigneeTable.addCell(titledCell("State", c.state ?: "U.P."))
-        consigneeTable.addCell(titledCell("Code", c.code ?: "09"))
 
-        val cc = PdfPCell(consigneeTable)
-        cc.setBorder(PdfPCell.NO_BORDER)
-        twoCol.addCell(cc)
+        partyTable.addCell(boxed("Name", r.name))
+        partyTable.addCell(boxed("Name", c.name))
 
-        doc.add(twoCol)
+        partyTable.addCell(boxed("Address", r.address))
+        partyTable.addCell(boxed("Address", c.address))
+
+        partyTable.addCell(boxed("Place of Supply", r.placeOfSupply))
+        partyTable.addCell(boxed("Place of Supply", c.placeOfSupply))
+
+        partyTable.addCell(boxed("Transport Mode", r.transportMode))
+        partyTable.addCell(boxed("Transport Mode", c.transportMode))
+
+        partyTable.addCell(boxed("State", r.state))
+        partyTable.addCell(boxed("State / Code", "${c.state} / ${c.code}"))
+
+        partyTable.addCell(boxed("GSTIN", r.gstIn))
+        partyTable.addCell(boxed("Invoice No", c.invoiceNo))
+
+        doc.add(partyTable)
         doc.add(Chunk.NEWLINE)
 
-        // ITEM TABLE
-        val itemTable = PdfPTable(6)
+        /* ================= ITEMS ================= */
+        val itemTable = PdfPTable(7)
         itemTable.widthPercentage = 100f
-        itemTable.setWidths(floatArrayOf(6f, 40f, 12f, 8f, 12f, 12f))
+        itemTable.setWidths(floatArrayOf(5f, 35f, 10f, 10f, 10f, 15f, 15f))
 
-        fun headerCell(text: String): PdfPCell {
-            val c = PdfPCell(Phrase(text, bold))
-            c.setHorizontalAlignment(Element.ALIGN_CENTER)
-            c.setVerticalAlignment(Element.ALIGN_MIDDLE)
-            c.setBackgroundColor(Color(230, 230, 230))
-            c.setPadding(6f)
-            return c
+        fun headerCell(text: String) =
+            PdfPCell(Phrase(text, Font(Font.HELVETICA, 9f, Font.BOLD, Color.WHITE))).apply {
+                backgroundColor = Color(40, 40, 40)
+                horizontalAlignment = Element.ALIGN_CENTER
+                setPadding(5f)
+            }
+
+        listOf(
+            "S.No", "Description of Goods", "HSN Code",
+            "Quant.", "Rate", "Rs.", "Amount"
+        ).forEach { itemTable.addCell(headerCell(it)) }
+
+        req.items.forEach {
+            itemTable.addCell(PdfPCell(Phrase(it.serialNo.toString(), normal)))
+            itemTable.addCell(PdfPCell(Phrase(it.description, normal)))
+            itemTable.addCell(PdfPCell(Phrase(it.hsnCode ?: "", normal)))
+            itemTable.addCell(PdfPCell(Phrase(it.quantity.toString(), normal)))
+            itemTable.addCell(PdfPCell(Phrase("%.2f".format(it.rate), normal)))
+            itemTable.addCell(PdfPCell(Phrase("", normal)))
+            itemTable.addCell(PdfPCell(Phrase("%.2f".format(it.amount), normal)))
         }
 
-        itemTable.addCell(headerCell("S.No"))
-        itemTable.addCell(headerCell("Description"))
-        itemTable.addCell(headerCell("HSN"))
-        itemTable.addCell(headerCell("Qty"))
-        itemTable.addCell(headerCell("Rate"))
-        itemTable.addCell(headerCell("Amount"))
-
-        req.items.forEach { it ->
-            itemTable.addCell(PdfPCell(Phrase(it.serialNo.toString(), normal)).apply { setHorizontalAlignment(Element.ALIGN_CENTER); setPadding(6f) })
-            itemTable.addCell(PdfPCell(Phrase(it.description, normal)).apply { setPadding(6f) })
-            itemTable.addCell(PdfPCell(Phrase(it.hsnCode ?: "", normal)).apply { setHorizontalAlignment(Element.ALIGN_CENTER); setPadding(6f) })
-            itemTable.addCell(PdfPCell(Phrase(it.quantity.toString(), normal)).apply { setHorizontalAlignment(Element.ALIGN_CENTER); setPadding(6f) })
-            itemTable.addCell(PdfPCell(Phrase(String.format("%.2f", it.rate), normal)).apply { setHorizontalAlignment(Element.ALIGN_RIGHT); setPadding(6f) })
-            itemTable.addCell(PdfPCell(Phrase(String.format("%.2f", it.amount), normal)).apply { setHorizontalAlignment(Element.ALIGN_RIGHT); setPadding(6f) })
+        repeat(15 - req.items.size) {
+            repeat(7) {
+                itemTable.addCell(PdfPCell(Phrase("")).apply { fixedHeight = 18f })
+            }
         }
 
         doc.add(itemTable)
         doc.add(Chunk.NEWLINE)
 
-        // SUMMARY + TAX DETAILS (right aligned)
-        val summaryTable = PdfPTable(2)
-        summaryTable.horizontalAlignment = Element.ALIGN_RIGHT
-        summaryTable.widthPercentage = 50f
-        summaryTable.setWidths(floatArrayOf(60f, 40f))
+        /* ================= BANK + SUMMARY ================= */
+        val bottom = PdfPTable(2)
+        bottom.widthPercentage = 100f
+        bottom.setWidths(floatArrayOf(55f, 45f))
 
-        fun addSummaryRow(label: String, value: String) {
-            val lCell = PdfPCell(Phrase(label, normal))
-            lCell.setBorder(PdfPCell.NO_BORDER)
-            lCell.setHorizontalAlignment(Element.ALIGN_LEFT)
-            val vCell = PdfPCell(Phrase(value, normal))
-            vCell.setBorder(PdfPCell.NO_BORDER)
-            vCell.setHorizontalAlignment(Element.ALIGN_RIGHT)
-            summaryTable.addCell(lCell)
-            summaryTable.addCell(vCell)
+        val bank = PdfPCell(Phrase(
+            "Bank Details:\n" +
+                    "Bank Name: FEDERAL BANK\n" +
+                    "A/c No: 15950200009321\n" +
+                    "Branch: Mahmoorganj, Varanasi\n" +
+                    "IFSC Code: FDRL0001595",
+            normal
+        ))
+        bank.setPadding(5f)
+        bottom.addCell(bank)
+
+        val summary = PdfPTable(2)
+        summary.widthPercentage = 100f
+        summary.setWidths(floatArrayOf(65f, 35f))
+
+        fun sumRow(l: String, v: String) {
+            summary.addCell(PdfPCell(Phrase(l, normal)))
+            summary.addCell(PdfPCell(Phrase(v, normal)).apply {
+                horizontalAlignment = Element.ALIGN_RIGHT
+            })
         }
 
-        addSummaryRow("Total before tax", String.format("%.2f", req.totalSummary.totalBeforeTax))
-        addSummaryRow("CGST (${req.tax.cgstPercent}%)", String.format("%.2f", req.totalSummary.cgstAmount))
-        addSummaryRow("SGST (${req.tax.sgstPercent}%)", String.format("%.2f", req.totalSummary.sgstAmount))
-        addSummaryRow("IGST (${req.tax.igstPercent}%)", String.format("%.2f", req.totalSummary.igstAmount))
-        addSummaryRow("Freight Charge", String.format("%.2f", req.totalSummary.freightCharge))
-        addSummaryRow("Total After Tax", String.format("%.2f", req.totalSummary.totalAfterTax))
-        addSummaryRow("Amount (in words)", req.amountInWords ?: NumberToWords.convert(req.totalSummary.totalAfterTax))
+        sumRow("Total Amount Before Tax", "%.2f".format(req.totalSummary.totalBeforeTax))
+        sumRow("Add: CGST", "%.2f".format(req.totalSummary.cgstAmount))
+        sumRow("Add: SGST", "%.2f".format(req.totalSummary.sgstAmount))
+        sumRow("Add: IGST", "%.2f".format(req.totalSummary.igstAmount))
+        sumRow("Freight Charge", "%.2f".format(req.totalSummary.freightCharge))
+        sumRow("Total Amount After Tax", "%.2f".format(req.totalSummary.totalAfterTax))
 
-        doc.add(summaryTable)
+        bottom.addCell(PdfPCell(summary))
+        doc.add(bottom)
+
         doc.add(Chunk.NEWLINE)
 
-        // BANK DETAILS
-        val bankTable = PdfPTable(1)
-        bankTable.widthPercentage = 100f
-        val bankCell = PdfPCell()
-        bankCell.setBorder(PdfPCell.NO_BORDER)
-        val bankPara = Paragraph()
-        bankPara.add(Chunk("BANK DETAILS\n", bold))
-        bankPara.add(Chunk("Bank Name: FEDERAL BANK\nA/C No: 15950200009321\nBranch: Mahmoorganj, Varanasi\nIFSC: FDRL0001595\n", normal))
-        bankCell.addElement(bankPara)
-        bankTable.addCell(bankCell)
-        doc.add(bankTable)
-        doc.add(Chunk.NEWLINE)
+        /* ================= FOOTER ================= */
+        val footerTable = PdfPTable(2)
+        footerTable.widthPercentage = 100f
+        footerTable.setWidths(floatArrayOf(70f, 30f))
 
-        // FOOTER
-        val footer = Paragraph()
-        footer.add(Chunk("Interest will be charged on overdue invoices as per applicable law.\n", small))
-        footer.add(Chunk("Jurisdiction: Varanasi Courts\n", small))
-        footer.add(Chunk("\"Goods once sold will not be taken back or exchanged\"\n\n", bold))
-        footer.add(Chunk("\n\n\nAuthorized Signatory\n\n_________________________", normal))
-        footer.alignment = Element.ALIGN_LEFT
-        doc.add(footer)
+        val leftFooter = Paragraph(
+            "• Interest will be charged 18% P/A on unpaid balance if not paid within 15 days.\n" +
+                    "• All disputes subject to Varanasi Jurisdiction only.\n" +
+                    "• Goods once sold will not be taken back or exchanged.\n\n"+
+                    "For: SHASHANK SAREE CENTER",
+            small
+        )
+        val leftCell = PdfPCell()
+        leftCell.border = PdfPCell.NO_BORDER
+        leftCell.addElement(leftFooter)
+        footerTable.addCell(leftCell)
+
+        val rightPara = Paragraph()
+        val sig = Paragraph("Authorised Signatory", normal)
+        sig.alignment = Element.ALIGN_RIGHT
+        rightPara.add(sig)
+        rightPara.alignment = Element.ALIGN_RIGHT
+
+        val rightCell = PdfPCell()
+        rightCell.border = PdfPCell.NO_BORDER
+        rightCell.addElement(rightPara)
+        rightCell.horizontalAlignment = Element.ALIGN_RIGHT
+        footerTable.addCell(rightCell)
+
+        doc.add(footerTable)
 
         doc.close()
         writer.close()
         return baos.toByteArray()
     }
+
 }

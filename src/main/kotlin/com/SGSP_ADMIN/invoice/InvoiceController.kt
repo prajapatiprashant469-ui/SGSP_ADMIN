@@ -2,6 +2,7 @@ package com.SGSP_ADMIN.invoice
 
 // ...existing imports...
 import com.fasterxml.jackson.databind.ObjectMapper
+import org.springframework.core.io.ByteArrayResource
 import org.springframework.http.HttpHeaders
 import org.springframework.http.MediaType
 import org.springframework.http.ResponseEntity
@@ -20,7 +21,11 @@ class InvoiceController(
 ) {
 
     // accept JSON bodies and also plain text (so we can inspect raw body and give helpful errors)
-    @PostMapping("/generate", consumes = [MediaType.APPLICATION_JSON_VALUE, MediaType.TEXT_PLAIN_VALUE])
+    @PostMapping(
+        "/generate",
+        consumes = [MediaType.APPLICATION_JSON_VALUE, MediaType.TEXT_PLAIN_VALUE],
+        produces = [MediaType.APPLICATION_PDF_VALUE]
+    )
     fun generate(@RequestBody body: String): ResponseEntity<Any> {
         val trimmed = body.trim()
 
@@ -43,7 +48,12 @@ class InvoiceController(
                     val headers = HttpHeaders()
                     headers.contentType = MediaType.APPLICATION_PDF
                     headers.add(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"invoice.pdf\"")
-                    ResponseEntity.ok().headers(headers).body(pdf)
+                    // return binary resource with explicit length to avoid accidental serialization
+                    ResponseEntity.ok()
+                        .headers(headers)
+                        .contentLength(pdf.size.toLong())
+                        .contentType(MediaType.APPLICATION_PDF)
+                        .body(ByteArrayResource(pdf))
                 } catch (ex: Exception) {
                     val msg = "Failed to parse JSON from server-side file '$ref': ${ex.message ?: "invalid JSON"}"
                     val err = mapOf("success" to false, "data" to null, "error" to mapOf("code" to "INVALID_JSON", "message" to msg))
@@ -76,7 +86,12 @@ class InvoiceController(
             val headers = HttpHeaders()
             headers.contentType = MediaType.APPLICATION_PDF
             headers.add(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"invoice.pdf\"")
-            ResponseEntity.ok().headers(headers).body(pdf)
+            // Return binary PDF as ByteArrayResource with explicit content length
+            ResponseEntity.ok()
+                .headers(headers)
+                .contentLength(pdf.size.toLong())
+                .contentType(MediaType.APPLICATION_PDF)
+                .body(ByteArrayResource(pdf))
         } catch (ex: Exception) {
             val err = mapOf("success" to false, "data" to null, "error" to mapOf("code" to "INTERNAL_ERROR", "message" to (ex.message ?: "Failed to generate PDF")))
             ResponseEntity.status(500).contentType(MediaType.APPLICATION_JSON).body(err)
