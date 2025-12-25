@@ -5,17 +5,22 @@ import com.lowagie.text.pdf.*
 import java.awt.Color
 import org.springframework.stereotype.Service
 import java.io.ByteArrayOutputStream
-import java.time.LocalDate
-import java.time.format.DateTimeFormatter
 
 @Service
-class InvoiceService {
+class InvoiceService(
+    private val invoiceNumberService: InvoiceNumberService
+) {
 
     fun generatePdf(req: InvoiceRequest): ByteArray {
+
         val baos = ByteArrayOutputStream()
         val doc = Document(PageSize.A4, 36f, 36f, 36f, 36f)
         val writer = PdfWriter.getInstance(doc, baos)
         doc.open()
+
+        /* ========= BACKEND OWNED VALUES ========= */
+        val invoiceNo = invoiceNumberService.nextInvoiceNo()
+        val r = req.receiver
 
         val bold = Font(Font.HELVETICA, 9f, Font.BOLD)
         val normal = Font(Font.HELVETICA, 9f)
@@ -41,7 +46,7 @@ class InvoiceService {
 
         header.addCell(center("TAX INVOICE", Font(Font.HELVETICA, 10f, Font.BOLD)))
         header.addCell(center("SHASHANK SAREE CENTER", Font(Font.HELVETICA, 16f, Font.BOLD)))
-        header.addCell(center("N9/28 A-1, Choti Patiya, Bajardihā, Varanasi-221109", normal))
+        header.addCell(center("N9/28 A-1, Choti Patiya, Bajardiha, Varanasi-221109", normal))
         header.addCell(center("GSTIN - 09GHBPP6328G1Z2", bold))
         header.addCell(center("Mob: 8318325253", normal))
 
@@ -70,29 +75,61 @@ class InvoiceService {
                 setPadding(5f)
             }
 
+        fun boxedStateWithCode(
+            stateLabel: String,
+            state: String?,
+            codeLabel: String,
+            code: String?
+        ): PdfPCell {
+
+            val table = PdfPTable(2)
+            table.widthPercentage = 100f
+            table.setWidths(floatArrayOf(70f, 30f))
+
+            val left = PdfPCell(
+                Phrase("$stateLabel: ${state ?: ""}", normal)
+            ).apply {
+                border = PdfPCell.NO_BORDER
+                horizontalAlignment = Element.ALIGN_LEFT
+            }
+
+            val right = PdfPCell(
+                Phrase("$codeLabel: ${code ?: ""}", normal)
+            ).apply {
+                border = PdfPCell.NO_BORDER
+                horizontalAlignment = Element.ALIGN_RIGHT
+            }
+
+            table.addCell(left)
+            table.addCell(right)
+
+            return PdfPCell(table).apply {
+                setPadding(5f)
+            }
+        }
+
+
         partyTable.addCell(sectionHeader("DETAILS OF RECEIVER (BILLED TO)"))
         partyTable.addCell(sectionHeader("DETAILS OF CONSIGNEE (SHIPPED TO)"))
 
-        val r = req.receiver
-        val c = req.consignee
-
+        // Receiver
         partyTable.addCell(boxed("Name", r.name))
-        partyTable.addCell(boxed("Name", c.name))
+        partyTable.addCell(boxed("Name", r.name))
 
         partyTable.addCell(boxed("Address", r.address))
-        partyTable.addCell(boxed("Address", c.address))
+        partyTable.addCell(boxed("Address", r.address))
 
         partyTable.addCell(boxed("Place of Supply", r.placeOfSupply))
-        partyTable.addCell(boxed("Place of Supply", c.placeOfSupply))
+        partyTable.addCell(boxed("Place of Supply", r.placeOfSupply))
 
         partyTable.addCell(boxed("Transport Mode", r.transportMode))
-        partyTable.addCell(boxed("Transport Mode", c.transportMode))
+        partyTable.addCell(boxed("Transport Mode", r.transportMode))
 
-        partyTable.addCell(boxed("State", r.state))
-        partyTable.addCell(boxed("State / Code", "${c.state} / ${c.code}"))
+        partyTable.addCell(boxedStateWithCode("State", r.state,"stateCode",r.stateCode))
+        partyTable.addCell(boxedStateWithCode("State", r.state,"stateCode",r.stateCode))
 
         partyTable.addCell(boxed("GSTIN", r.gstIn))
-        partyTable.addCell(boxed("Invoice No", c.invoiceNo))
+        partyTable.addCell(boxed("Invoice No", invoiceNo))
 
         doc.add(partyTable)
         doc.add(Chunk.NEWLINE)
@@ -139,14 +176,16 @@ class InvoiceService {
         bottom.setWidths(floatArrayOf(55f, 45f))
 
         val bank = PdfPCell(Phrase(
-            "Bank Details:\n" +
-                    "Bank Name: FEDERAL BANK\n" +
-                    "A/c No: 15950200009321\n" +
-                    "Branch: Mahmoorganj, Varanasi\n" +
-                    "IFSC Code: FDRL0001595",
+            """
+            Bank Details:
+            Bank Name: FEDERAL BANK
+            A/c No: 15950200009321
+            Branch: Mahmoorganj, Varanasi
+            IFSC Code: FDRL0001595
+            """.trimIndent(),
             normal
-        ))
-        bank.setPadding(5f)
+        )).apply { setPadding(5f) }
+
         bottom.addCell(bank)
 
         val summary = PdfPTable(2)
@@ -155,9 +194,11 @@ class InvoiceService {
 
         fun sumRow(l: String, v: String) {
             summary.addCell(PdfPCell(Phrase(l, normal)))
-            summary.addCell(PdfPCell(Phrase(v, normal)).apply {
-                horizontalAlignment = Element.ALIGN_RIGHT
-            })
+            summary.addCell(
+                PdfPCell(Phrase(v, normal)).apply {
+                    horizontalAlignment = Element.ALIGN_RIGHT
+                }
+            )
         }
 
         sumRow("Total Amount Before Tax", "%.2f".format(req.totalSummary.totalBeforeTax))
@@ -170,36 +211,41 @@ class InvoiceService {
         bottom.addCell(PdfPCell(summary))
         doc.add(bottom)
 
-        doc.add(Chunk.NEWLINE)
 
         /* ================= FOOTER ================= */
         val footerTable = PdfPTable(2)
+        footerTable.keepTogether = true
+        bottom.keepTogether = true
+        footerTable.spacingBefore()
         footerTable.widthPercentage = 100f
         footerTable.setWidths(floatArrayOf(70f, 30f))
 
+
         val leftFooter = Paragraph(
-            "• Interest will be charged 18% P/A on unpaid balance if not paid within 15 days.\n" +
-                    "• All disputes subject to Varanasi Jurisdiction only.\n" +
-                    "• Goods once sold will not be taken back or exchanged.\n\n"+
-                    "For: SHASHANK SAREE CENTER",
+            """
+            • Interest will be charged 18% P/A on unpaid balance if not paid within 15 days.
+            • All disputes subject to Varanasi Jurisdiction only.
+            • Goods once sold will not be taken back or exchanged.
+
+            For: SHASHANK SAREE CENTER
+            """.trimIndent(),
             small
         )
-        val leftCell = PdfPCell()
-        leftCell.border = PdfPCell.NO_BORDER
-        leftCell.addElement(leftFooter)
-        footerTable.addCell(leftCell)
 
-        val rightPara = Paragraph()
-        val sig = Paragraph("Authorised Signatory", normal)
-        sig.alignment = Element.ALIGN_RIGHT
-        rightPara.add(sig)
-        rightPara.alignment = Element.ALIGN_RIGHT
+        footerTable.addCell(
+            PdfPCell().apply {
+                border = PdfPCell.NO_BORDER
+                addElement(leftFooter)
+            }
+        )
 
-        val rightCell = PdfPCell()
-        rightCell.border = PdfPCell.NO_BORDER
-        rightCell.addElement(rightPara)
-        rightCell.horizontalAlignment = Element.ALIGN_RIGHT
-        footerTable.addCell(rightCell)
+        footerTable.addCell(
+            PdfPCell().apply {
+                border = PdfPCell.NO_BORDER
+                horizontalAlignment = Element.ALIGN_RIGHT
+                addElement(Paragraph("Authorised Signatory", normal))
+            }
+        )
 
         doc.add(footerTable)
 
@@ -207,5 +253,4 @@ class InvoiceService {
         writer.close()
         return baos.toByteArray()
     }
-
 }

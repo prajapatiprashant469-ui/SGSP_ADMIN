@@ -15,10 +15,10 @@ data class ConsigneeDto(
     val address: String,
     val placeOfSupply: String? = null,
     val transportMode: String? = null,
-    val invoiceNo: String? = null,
-    val state: String? = "U.P.",
-    val code: String? = "09"
+    val state: String? = null,
+    val code: String? = null
 )
+
 
 data class ItemDto(
     val serialNo: Int,
