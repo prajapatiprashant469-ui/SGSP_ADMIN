@@ -13,9 +13,15 @@ import org.springframework.web.bind.annotation.*
 import org.springframework.web.server.ServerWebExchange
 import reactor.core.publisher.Mono
 import reactor.core.publisher.Flux
-import java.nio.file.Files
-import java.nio.file.Path
-import java.nio.file.Paths
+import org.springframework.data.mongodb.gridfs.ReactiveGridFsTemplate
+import org.springframework.data.mongodb.core.query.Criteria
+import org.springframework.data.mongodb.core.query.Query
+import org.springframework.core.io.buffer.DataBuffer
+import org.springframework.core.io.buffer.DataBufferUtils
+import org.springframework.http.MediaType
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
+import org.bson.types.ObjectId
 import java.time.Instant
 import java.util.Locale
 import java.util.UUID
@@ -24,7 +30,8 @@ import java.util.UUID
 @RequestMapping("/api/admin/v1/products")
 class ProductController(
     private val repo: ProductRepository,
-    private val categoryRepository: CategoryRepository
+    private val categoryRepository: CategoryRepository,
+    private val gridFsTemplate: ReactiveGridFsTemplate
 ) {
 
     @PostMapping
@@ -281,145 +288,114 @@ class ProductController(
         )
     }
 
-    // -------------------- Image upload --------------------
+    /* -------------------- IMAGE UPLOAD (GridFS) -------------------- */
     @PostMapping("/{id}/images")
     fun uploadImages(
         @PathVariable id: String,
-        exchange: ServerWebExchange // read multipart data reactively
+        exchange: ServerWebExchange
     ): Mono<ResponseEntity<Map<String, Any?>>> {
-        val uploadDir = Paths.get(System.getProperty("user.dir"), "uploads")
-        // base URL used in returned image url (adjust if you serve files differently)
-        val baseUrl = System.getenv("BASE_URL")?.trimEnd('/') ?: "http://localhost:8080"
 
         return exchange.multipartData.flatMap { multi: MultiValueMap<String, Part> ->
-            val fileParts = (multi["files"] ?: multi["files[]"] ?: emptyList()).mapNotNull { p ->
-                if (p is FilePart) p else null
-            }
+            val fileParts = (multi["files"] ?: multi["files[]"] ?: emptyList())
+                .filterIsInstance<FilePart>()
+
             if (fileParts.isEmpty()) {
-                return@flatMap Mono.just(ResponseEntity.status(HttpStatus.BAD_REQUEST).body(
-                    mapOf("success" to false, "data" to null, "error" to mapOf("code" to "NO_FILES", "message" to "No files uploaded"))
-                ))
+                return@flatMap Mono.just(
+                    ResponseEntity.badRequest().body(
+                        mapOf("success" to false, "data" to null, "error" to "No files uploaded")
+                    )
+                )
             }
 
-            // ensure upload directory exists
-            try {
-                Files.createDirectories(uploadDir)
-            } catch (_: Exception) {}
-
             repo.findById(id).flatMap { product ->
-                // For each file part, transfer to a file and create Image entry
-                val fileMonos = fileParts.mapIndexed { idx, fp ->
-                    val imgId = "img_" + UUID.randomUUID().toString().replace("-", "")
-                    val ext = fp.filename().substringAfterLast('.', "jpg")
-                    val filename = "${imgId}.$ext"
-                    val dest = uploadDir.resolve(filename)
-                    fp.transferTo(dest).then(Mono.fromCallable {
-                        val sortStart = (product.images?.size ?: 0) + 1
-                        val image = mapOf(
-                            "id" to imgId,
-                            "url" to "$baseUrl/uploads/$filename",
-                            "sortOrder" to (sortStart + idx)
+
+                val startOrder = (product.images?.size ?: 0) + 1
+
+                val imageMonos = fileParts.mapIndexed { idx, fp ->
+                    gridFsTemplate.store(
+                        fp.content(),
+                        fp.filename(),
+                        fp.headers().contentType.toString(),
+                        mapOf("productId" to id)
+                    ).map { fileId ->
+                        Image(
+                            id = fileId.toString(),
+                            url = "/api/admin/v1/products/$id/images/$fileId",
+                            sortOrder = startOrder + idx
                         )
-                        image
-                    })
+                    }
                 }
 
-                Flux.concat(fileMonos).collectList().flatMap { newImagesList ->
-                    // convert maps to Image data class instances
-                    val currentImages = product.images?.toMutableList() ?: mutableListOf()
-                    newImagesList.forEach { imgMap ->
-                        @Suppress("UNCHECKED_CAST")
-                        val img = Image(
-                            id = imgMap["id"] as String?,
-                            url = imgMap["url"] as String?,
-                            sortOrder = (imgMap["sortOrder"] as? Number)?.toInt()
-                        )
-                        currentImages.add(img)
-                    }
-                    product.images = currentImages
+                Flux.concat(imageMonos).collectList().flatMap { newImages ->
+                    val allImages = (product.images ?: mutableListOf()).toMutableList()
+                    allImages.addAll(newImages)
+                    product.images = allImages
                     product.updatedAt = Instant.now().toString()
-                    repo.save(product).map { saved ->
-                        val responseData = saved.images ?: emptyList<Image>()
-                        ResponseEntity.ok(mapOf("success" to true, "data" to responseData, "error" to null))
+
+                    repo.save(product).map {
+                        ResponseEntity.ok(
+                            mapOf("success" to true, "data" to it.images, "error" to null)
+                        )
                     }
                 }
-            }.switchIfEmpty(
-                Mono.just(ResponseEntity.status(HttpStatus.NOT_FOUND).body(
-                    mapOf("success" to false, "data" to null, "error" to mapOf("code" to "PRODUCT_NOT_FOUND", "message" to "Product not found"))
-                ))
-            )
+            }
         }
     }
 
-    // -------------------- Update image order --------------------
-    data class ImageOrderItem(val id: String, val sortOrder: Int)
-    data class ImageOrderRequest(val imageOrder: List<ImageOrderItem>)
+    /* -------------------- SERVE IMAGE -------------------- */
+    @GetMapping("/{productId}/images/{imageId}")
+    fun serveImage(
+        @PathVariable productId: String,
+        @PathVariable imageId: String
+    ): Mono<ResponseEntity<ByteArray>> {
 
-    @PutMapping("/{id}/images/order")
-    fun updateImageOrder(
-        @PathVariable id: String,
-        @RequestBody reqMono: Mono<ImageOrderRequest>
-    ): Mono<ResponseEntity<Map<String, Any?>>> {
-        return reqMono.flatMap { req ->
-            repo.findById(id).flatMap { product ->
-                val orderMap = req.imageOrder.associate { it.id to it.sortOrder }
-                val images = product.images?.map { img ->
-                    if (img.id != null && orderMap.containsKey(img.id)) {
-                        img.copy(sortOrder = orderMap[img.id])
-                    } else img
-                }?.sortedBy { it.sortOrder ?: Int.MAX_VALUE } ?: emptyList()
-                product.images = images
-                product.updatedAt = Instant.now().toString()
-                repo.save(product).map { saved ->
-                    ResponseEntity.ok(mapOf("success" to true, "data" to saved.images, "error" to null))
-                }
-            }.switchIfEmpty(
-                Mono.just(ResponseEntity.status(HttpStatus.NOT_FOUND).body(
-                    mapOf("success" to false, "data" to null, "error" to mapOf("code" to "PRODUCT_NOT_FOUND", "message" to "Product not found"))
-                ))
-            )
-        }
+        return gridFsTemplate.findOne(
+            Query.query(Criteria.where("_id").`is`(ObjectId(imageId)))
+        )
+            .switchIfEmpty(Mono.error(RuntimeException("Image not found")))
+            .flatMap { file ->
+                gridFsTemplate.getResource(file)
+                    .flatMap { resource ->
+                        DataBufferUtils.join(resource.content)
+                            .map { dataBuffer ->
+                                val bytes = ByteArray(dataBuffer.readableByteCount())
+                                dataBuffer.read(bytes)
+                                DataBufferUtils.release(dataBuffer)
+
+                                ResponseEntity.ok()
+                                    .header(
+                                        "Content-Type",
+                                        file.metadata?.getString("_contentType") ?: MediaType.IMAGE_JPEG_VALUE
+                                    )
+                                    .body(bytes)
+                            }
+                    }
+            }
     }
 
-    // -------------------- Delete image --------------------
+
+
+    /* -------------------- DELETE IMAGE -------------------- */
     @DeleteMapping("/{id}/images/{imageId}")
     fun deleteImage(
         @PathVariable id: String,
         @PathVariable imageId: String
     ): Mono<ResponseEntity<Map<String, Any?>>> {
-        val uploadDir = Paths.get(System.getProperty("user.dir"), "uploads")
-        return repo.findById(id).flatMap { product ->
-            val existing = product.images ?: emptyList()
-            val toRemove = existing.firstOrNull { it.id == imageId }
-            if (toRemove == null) {
-                return@flatMap Mono.just(
-                    ResponseEntity.status(HttpStatus.NOT_FOUND).body(
-                        mapOf("success" to false, "data" to null, "error" to mapOf("code" to "IMAGE_NOT_FOUND", "message" to "Image not found"))
-                    )
-                )
-            }
-            // attempt to delete file if URL points to uploads dir
-            try {
-                val url = toRemove.url
-                if (!url.isNullOrBlank() && url.contains("/uploads/")) {
-                    val filename = url.substringAfterLast("/")
-                    val path = uploadDir.resolve(filename)
-                    try { Files.deleteIfExists(path) } catch (_: Exception) {}
-                }
-            } catch (_: Exception) {}
 
-            val newImages = existing.filterNot { it.id == imageId }
-            product.images = newImages
+        return repo.findById(id).flatMap { product ->
+            val updatedImages = product.images?.filterNot { it.id == imageId } ?: emptyList()
+            product.images = updatedImages
             product.updatedAt = Instant.now().toString()
-            repo.save(product).map {
-                ResponseEntity.ok<Map<String, Any?>>(mapOf("success" to true, "data" to null, "error" to null))
-            }
-        }.switchIfEmpty(
-            Mono.just(
-                ResponseEntity.status(HttpStatus.NOT_FOUND).body(
-                    mapOf("success" to false, "data" to null, "error" to mapOf("code" to "PRODUCT_NOT_FOUND", "message" to "Product not found"))
-                )
+
+            gridFsTemplate.delete(
+                Query.query(Criteria.where("_id").`is`(ObjectId(imageId)))
+            ).then(
+                repo.save(product).map {
+                    ResponseEntity.ok(
+                        mapOf("success" to true, "data" to null, "error" to null)
+                    )
+                }
             )
-        )
+        }
     }
 }
