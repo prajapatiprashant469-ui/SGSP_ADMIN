@@ -138,7 +138,8 @@ class ProductController(
                                     "categoryName" to it.name,
                                     "price" to p.pricing?.price,
                                     "stockQuantity" to p.inventory?.stockQuantity,
-                                    "thumbnailUrl" to p.images?.firstOrNull()?.url
+                                    "thumbnailUrl" to p.images?.firstOrNull()?.url,
+                                    "workerAssigned" to p.attributes?.get("workerAssigned")
                                 )
                             }
                             .defaultIfEmpty(
@@ -150,7 +151,8 @@ class ProductController(
                                     "categoryName" to "N/A",
                                     "price" to p.pricing?.price,
                                     "stockQuantity" to p.inventory?.stockQuantity,
-                                    "thumbnailUrl" to p.images?.firstOrNull()?.url
+                                    "thumbnailUrl" to p.images?.firstOrNull()?.url,
+                                    "workerAssigned" to p.attributes?.get("workerAssigned")
                                 )
                             )
                     }
