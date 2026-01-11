@@ -59,12 +59,17 @@ class CorsConfig {
                 val origin = exchange.request.headers.getFirst("Origin") ?: "*"
                 headers.add("Access-Control-Allow-Origin", origin)
                 headers.add("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS")
-                headers.add("Access-Control-Allow-Headers", exchange.request.headers.getFirst("Access-Control-Request-Headers") ?: "*")
+                headers.add(
+                    "Access-Control-Allow-Headers",
+                    exchange.request.headers.getFirst("Access-Control-Request-Headers") ?: "*"
+                )
                 headers.add("Access-Control-Allow-Credentials", "true")
-                Mono.empty()
+                // THIS IS THE KEY: complete the response
+                return@WebFilter resp.setComplete()
             } else {
                 chain.filter(exchange)
             }
         }
     }
+
 }
