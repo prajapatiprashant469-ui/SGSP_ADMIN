@@ -27,19 +27,23 @@ class AuthController(
 ) {
     private val jwtSecret = System.getenv("JWT_SECRET") ?: "dev_secret_must_be_replaced_with_long_random_value_please_change"
 
-    @PostMapping("/login")
-    fun loginForm(
-        @RequestParam email: String,
-        @RequestParam password: String
-    ): Mono<ResponseEntity<ApiResponse<Any?>>> {
-        val trimmedEmail = email.trim()
-        val pass = password ?: ""
+    @PostMapping(
+        "/login",
+        consumes = ["application/json"],
+        produces = ["application/json"]
+    )
+    fun login(@RequestBody req: LoginRequest)
+            : Mono<ResponseEntity<ApiResponse<Any?>>> {
+
+        val trimmedEmail = req.email.trim()
+        val pass = req.password
 
         return adminRepo.findByEmail(trimmedEmail)
             .flatMap { admin ->
                 if (admin.password == pass) {
                     val now = Date()
-                    val exp = Date(now.time + 60 * 60 * 1000) // 1 hour
+                    val exp = Date(now.time + 60 * 60 * 1000)
+
                     val key = Keys.hmacShaKeyFor(jwtSecret.toByteArray(StandardCharsets.UTF_8))
                     val token = Jwts.builder()
                         .setSubject(admin.id)
@@ -51,14 +55,14 @@ class AuthController(
                         .compact()
 
                     val updatedAdmin = admin.copy(lastLoginAt = Instant.now().toString())
-                    adminRepo.save(updatedAdmin)
-                        .map {
-                            ResponseEntity.ok(
-                                successPayload(
-                                    mapOf("token" to token, "admin" to updatedAdmin)
-                                )
+
+                    adminRepo.save(updatedAdmin).map {
+                        ResponseEntity.ok(
+                            successPayload(
+                                mapOf("token" to token, "admin" to updatedAdmin)
                             )
-                        }
+                        )
+                    }
                 } else {
                     Mono.just(
                         ResponseEntity.status(401)
@@ -79,6 +83,7 @@ class AuthController(
                 )
             }
     }
+
 
 
     @PostMapping("/logout")
