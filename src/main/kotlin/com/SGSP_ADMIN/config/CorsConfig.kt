@@ -46,30 +46,4 @@ class CorsConfig {
         return CorsWebFilter(source)
     }
 
-    // Fallback preflight handler: if an OPTIONS request somehow reaches here,
-    // respond with 200 and basic CORS headers so browsers get a valid preflight response.
-    @Bean
-    @Order(1)
-    fun optionsPreflightFilter(): WebFilter {
-        return WebFilter { exchange, chain ->
-            if (exchange.request.method == HttpMethod.OPTIONS) {
-                val resp = exchange.response
-                resp.statusCode = HttpStatus.OK
-                val headers = resp.headers
-                val origin = exchange.request.headers.getFirst("Origin") ?: "*"
-                headers.add("Access-Control-Allow-Origin", origin)
-                headers.add("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS")
-                headers.add(
-                    "Access-Control-Allow-Headers",
-                    exchange.request.headers.getFirst("Access-Control-Request-Headers") ?: "*"
-                )
-                headers.add("Access-Control-Allow-Credentials", "true")
-                // THIS IS THE KEY: complete the response
-                return@WebFilter resp.setComplete()
-            } else {
-                chain.filter(exchange)
-            }
-        }
-    }
-
 }
