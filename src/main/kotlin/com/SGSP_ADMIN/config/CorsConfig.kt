@@ -24,13 +24,15 @@ class CorsConfig {
         config.allowedOrigins = listOf( // exact origins (kept for clarity)
             "http://localhost:3000",
             "http://localhost:5173",
-            "https://sgsp-admin-frontend.up.railway.app"
+            "https://sgsp-admin-frontend.up.railway.app",
+            "sgsp_admin.railway.internal"
         )
         // allow patterns as a fallback when exact matching fails (works in Spring 5.3+)
         config.allowedOriginPatterns = listOf(
             "http://localhost:*",
             "https://*.up.railway.app",
-            "https://sgsp-admin-frontend.up.railway.app"
+            "https://sgsp-admin-frontend.up.railway.app",
+            "sgsp_admin.railway.internal"
         )
 
         config.allowedMethods = listOf("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
