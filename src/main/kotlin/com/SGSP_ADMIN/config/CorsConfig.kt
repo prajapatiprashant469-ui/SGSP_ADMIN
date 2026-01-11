@@ -9,19 +9,32 @@ import org.springframework.web.cors.reactive.UrlBasedCorsConfigurationSource
 @Configuration
 class CorsConfig {
 
-    @Bean
-    fun corsWebFilter(): CorsWebFilter {
-        val config = CorsConfiguration()
-        // allow credentials and allow any origin pattern (use env to restrict in production)
-        config.allowedOriginPatterns = listOf("*")
-        config.allowedMethods = listOf("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
-        config.allowedHeaders = listOf("*")
-        config.exposedHeaders = listOf("Authorization", "Content-Type", "Location")
-        config.allowCredentials = true
-        config.maxAge = 3600L
+    @Configuration
+    class CorsConfig {
 
-        val source = UrlBasedCorsConfigurationSource()
-        source.registerCorsConfiguration("/**", config)
-        return CorsWebFilter(source)
+        @Bean
+        fun corsWebFilter(): CorsWebFilter {
+            val config = CorsConfiguration()
+
+            config.allowedOrigins = listOf(
+                "http://localhost:5173",                 // local dev
+                "https://sgsp-admin-frontend.up.railway.app" // railway frontend
+            )
+
+            config.allowedMethods = listOf(
+                "GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"
+            )
+
+            config.allowedHeaders = listOf("*")
+            config.exposedHeaders = listOf("Authorization", "Content-Type", "Location")
+            config.allowCredentials = true
+            config.maxAge = 3600L
+
+            val source = UrlBasedCorsConfigurationSource()
+            source.registerCorsConfiguration("/**", config)
+
+            return CorsWebFilter(source)
+        }
     }
+
 }
