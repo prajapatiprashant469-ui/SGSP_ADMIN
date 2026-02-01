@@ -1,4 +1,4 @@
-package com.SGSP_ADMIN
+package com.SGSP_CENTER
 
 import org.junit.jupiter.api.Test
 import org.springframework.boot.test.context.SpringBootTest

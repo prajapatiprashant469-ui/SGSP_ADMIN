@@ -1,11 +1,11 @@
-package com.SGSP_ADMIN
+package com.sgspcenter
 
 import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.boot.runApplication
 
 @SpringBootApplication
-class SgspAdminApplication
+class SgspCenterApplication
 
 fun main(args: Array<String>) {
-	runApplication<SgspAdminApplication>(*args)
+    runApplication<SgspCenterApplication>(*args)
 }

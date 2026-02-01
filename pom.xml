@@ -11,8 +11,8 @@
 	<groupId>SGSP_ADMIN</groupId>
 	<artifactId>SGSP_ARTIFACT</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
-	<name>SGSP_ADMIN</name>
-	<description>ADMIN PORTAL</description>
+	<name>SGSP_CENTER</name>
+	<description>SGSP CENTER</description>
 	<url/>
 	<licenses>
 		<license/>
