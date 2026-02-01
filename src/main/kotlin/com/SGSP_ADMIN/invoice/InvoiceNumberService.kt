@@ -12,7 +12,7 @@ class InvoiceNumberService(
     private val mongoTemplate: MongoTemplate
 ) {
 
-    fun nextInvoiceNo(): String {
+    fun nextInvoiceNumber(): String {
 
         val query = Query.query(Criteria.where("_id").`is`("INVOICE"))
 

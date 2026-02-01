@@ -19,7 +19,7 @@ class InvoiceService(
         doc.open()
 
         /* ========= BACKEND OWNED VALUES ========= */
-        val invoiceNo = invoiceNumberService.nextInvoiceNo()
+        val invoiceNo = invoiceNumberService.nextInvoiceNumber()
         val r = req.receiver
 
         val bold = Font(Font.HELVETICA, 9f, Font.BOLD)
